@@ -1,0 +1,10 @@
+[tools]
+go = "latest"
+
+[tasks.build]
+run = "go build -ldflags \"-s -w -X main.Version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)\" -o bin/gomposer ./cmd"
+description = "Build gomposer binary"
+
+[tasks.dev]
+run = "go run ./cmd --mock"
+description = "Run with mock data"
