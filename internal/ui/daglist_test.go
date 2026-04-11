@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"gomposer/internal/model"
+	"github.com/shiroimon/gomposer/internal/model"
 )
 
 func sampleDAGs() []model.DAG {

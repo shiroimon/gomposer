@@ -2,9 +2,9 @@
 go = "latest"
 
 [tasks.build]
-run = "go build -ldflags \"-s -w -X main.Version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)\" -o bin/gomposer ./cmd"
+run = "go build -ldflags \"-s -w -X main.Version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)\" -o bin/gomposer ./cmd/gomposer"
 description = "Build gomposer binary"
 
 [tasks.dev]
-run = "go run ./cmd --mock"
+run = "go run ./cmd/gomposer --mock"
 description = "Run with mock data"

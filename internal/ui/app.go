@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"gomposer/internal/api"
-	"gomposer/internal/config"
-	"gomposer/internal/model"
+	"github.com/shiroimon/gomposer/internal/api"
+	"github.com/shiroimon/gomposer/internal/config"
+	"github.com/shiroimon/gomposer/internal/model"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"

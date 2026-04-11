@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"gomposer/internal/model"
+	"github.com/shiroimon/gomposer/internal/model"
 
 	"github.com/charmbracelet/lipgloss"
 )

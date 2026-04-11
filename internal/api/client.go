@@ -1,6 +1,6 @@
 package api
 
-import "gomposer/internal/model"
+import "github.com/shiroimon/gomposer/internal/model"
 
 type DataSource interface {
 	ListDAGs() ([]model.DAG, error)
