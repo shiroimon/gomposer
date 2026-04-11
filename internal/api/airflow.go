@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"gomposer/internal/model"
+	"github.com/shiroimon/gomposer/internal/model"
 )
 
 // Airflow REST API JSON response structures.

@@ -7,9 +7,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"gomposer/internal/api"
-	"gomposer/internal/config"
-	"gomposer/internal/ui"
+	"github.com/shiroimon/gomposer/internal/api"
+	"github.com/shiroimon/gomposer/internal/config"
+	"github.com/shiroimon/gomposer/internal/ui"
 )
 
 // Version is set at build time via -ldflags.

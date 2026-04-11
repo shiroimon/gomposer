@@ -4,10 +4,10 @@ LDFLAGS := -ldflags "-s -w -X main.Version=$(VERSION)"
 .PHONY: build clean install
 
 build:
-	go build $(LDFLAGS) -o bin/gomposer ./cmd
+	go build $(LDFLAGS) -o bin/gomposer ./cmd/gomposer
 
 clean:
 	rm -rf bin/
 
 install:
-	go install $(LDFLAGS) ./cmd
+	go install $(LDFLAGS) ./cmd/gomposer

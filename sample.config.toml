@@ -1,4 +1,4 @@
-# Gomposer 設定ファイル
+# Gomposer configuration file
 
 [environments.qa]
 name = "qa"

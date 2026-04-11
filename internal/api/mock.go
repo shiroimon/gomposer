@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"gomposer/internal/model"
+	"github.com/shiroimon/gomposer/internal/model"
 )
 
 type MockDataSource struct {

@@ -1,4 +1,4 @@
-module gomposer
+module github.com/shiroimon/gomposer
 
 go 1.24.2
 
