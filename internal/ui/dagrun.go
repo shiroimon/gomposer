@@ -27,20 +27,13 @@ func NewDAGRunListModel(dagID string, runs []model.DAGRun) DAGRunListModel {
 	return DAGRunListModel{dagID: dagID, runs: runs, prevStates: states, changed: map[string]bool{}, falseSuccess: map[string]bool{}}
 }
 
-// DetectFalseSuccess checks each "success" run for upstream_failed tasks.
-func (m *DAGRunListModel) DetectFalseSuccess(getTasks func(dagID, runID string) []model.TaskInstance) {
-	m.falseSuccess = map[string]bool{}
-	for _, run := range m.runs {
-		if run.State == "success" {
-			tasks := getTasks(m.dagID, run.RunID)
-			for _, t := range tasks {
-				if t.State == "upstream_failed" || t.State == "skipped" {
-					m.falseSuccess[run.RunID] = true
-					break
-				}
-			}
-		}
+// SetFalseSuccess sets the precomputed false-success map (runID → true).
+// Used when the detection was run off the UI loop in a background command.
+func (m *DAGRunListModel) SetFalseSuccess(fs map[string]bool) {
+	if fs == nil {
+		fs = map[string]bool{}
 	}
+	m.falseSuccess = fs
 }
 
 // UpdateRuns updates the run list and detects state changes for highlighting.

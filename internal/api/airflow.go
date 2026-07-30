@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/shiroimon/gomposer/internal/model"
@@ -130,7 +131,54 @@ func (c *AirflowClient) ListDAGs() ([]model.DAG, error) {
 			NextDagRun:       parseTime(d.NextDagRun),
 		}
 	}
+	// The /dags endpoint does not include last-run info, so enrich each DAG
+	// with its latest run's state/date. This is an N+1, but ListDAGs is only
+	// ever called from a background tea.Cmd, so it never blocks the UI loop.
+	c.enrichLastRun(dags)
 	return dags, nil
+}
+
+// latestRunFetchWorkers bounds the concurrency of per-DAG last-run lookups
+// in enrichLastRun so we don't open one connection per DAG at once.
+const latestRunFetchWorkers = 8
+
+// enrichLastRun populates LastRunState/LastRunDate for each DAG by fetching its
+// most recent DAG run. Runs concurrently with a bounded worker pool; each
+// goroutine writes only to its own index, so no locking is required.
+func (c *AirflowClient) enrichLastRun(dags []model.DAG) {
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, latestRunFetchWorkers)
+	for i := range dags {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			state, date := c.latestRun(dags[i].ID)
+			dags[i].LastRunState = state
+			dags[i].LastRunDate = date
+		}(i)
+	}
+	wg.Wait()
+}
+
+// latestRun returns the state and start date of the most recent run for a DAG.
+// Returns ("", zero time) if the DAG has never run or the request fails.
+func (c *AirflowClient) latestRun(dagID string) (string, time.Time) {
+	path := fmt.Sprintf("/api/v1/dags/%s/dagRuns?order_by=-start_date&limit=1", url.PathEscape(dagID))
+	data, err := c.doRequest("GET", path, nil)
+	if err != nil {
+		return "", time.Time{}
+	}
+	var resp airflowDAGRunsResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return "", time.Time{}
+	}
+	if len(resp.DAGRuns) == 0 {
+		return "", time.Time{}
+	}
+	r := resp.DAGRuns[0]
+	return r.State, parseTime(r.StartDate)
 }
 
 func (c *AirflowClient) ListDAGRuns(dagID string) []model.DAGRun {

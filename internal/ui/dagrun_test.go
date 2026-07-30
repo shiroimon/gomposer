@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shiroimon/gomposer/internal/api"
 	"github.com/shiroimon/gomposer/internal/model"
 )
 
@@ -78,5 +79,30 @@ func TestDAGRunListModel_DagID(t *testing.T) {
 	m := NewDAGRunListModel("my_dag", nil)
 	if m.DagID() != "my_dag" {
 		t.Errorf("expected 'my_dag', got %q", m.DagID())
+	}
+}
+
+func TestDetectFalseSuccessMap(t *testing.T) {
+	ds := api.NewMockDataSource()
+
+	// report_weekly_summary's latest run is "success" but its last task is
+	// upstream_failed in the mock, so it must be flagged as a false success.
+	runs := ds.ListDAGRuns("report_weekly_summary")
+	fs := detectFalseSuccessMap(ds, "report_weekly_summary", runs)
+	flagged := false
+	for _, ok := range fs {
+		if ok {
+			flagged = true
+		}
+	}
+	if !flagged {
+		t.Error("expected a false-success run to be flagged for report_weekly_summary")
+	}
+
+	// A clean DAG whose successful runs have no upstream_failed/skipped tasks
+	// must not be flagged.
+	cleanRuns := ds.ListDAGRuns("etl_patient_records")
+	if got := detectFalseSuccessMap(ds, "etl_patient_records", cleanRuns); len(got) != 0 {
+		t.Errorf("expected no false-success flags for etl_patient_records, got %v", got)
 	}
 }

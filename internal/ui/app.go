@@ -57,6 +57,30 @@ type dagsLoadedMsg struct {
 	err  error
 }
 
+// dagRunsLoadedMsg is sent when the DAG runs for a DAG have been fetched
+// (including the off-loop false-success detection) in a background command.
+type dagRunsLoadedMsg struct {
+	dagID        string
+	runs         []model.DAGRun
+	falseSuccess map[string]bool
+}
+
+// refreshedMsg is sent when a background refresh of the current tab completes.
+type refreshedMsg struct {
+	tab   Tab
+	dagID string
+	runID string
+	dags  []model.DAG
+	runs  []model.DAGRun
+	tasks []model.TaskInstance
+	err   error
+}
+
+// diagnosisReadyMsg is sent when the background diagnosis scan completes.
+type diagnosisReadyMsg struct {
+	content string
+}
+
 type AppModel struct {
 	ds               api.DataSource
 	tab              Tab
@@ -80,6 +104,7 @@ type AppModel struct {
 	filterMode       bool
 	filterInput      string
 	loading          bool
+	loadingRuns      bool   // DAG runs are being fetched in the background
 	loadError        string // API error message to display
 	// Environment management
 	cfg            *config.Config // nil in mock mode
@@ -176,8 +201,33 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case autoRefreshMsg:
-		m.refresh()
-		return m, m.autoRefreshTick()
+		return m, tea.Batch(m.refreshCmd(), m.autoRefreshTick())
+
+	case dagRunsLoadedMsg:
+		// Only apply if we're still viewing this DAG's runs.
+		if m.tab == TabDAGRuns && m.dagRunList.DagID() == msg.dagID {
+			m.dagRunList = NewDAGRunListModel(msg.dagID, msg.runs)
+			m.dagRunList.SetSize(m.width)
+			m.dagRunList.SetFalseSuccess(msg.falseSuccess)
+			m.loadingRuns = false
+		}
+		return m, nil
+
+	case refreshedMsg:
+		return m, m.applyRefresh(msg)
+
+	case diagnosisReadyMsg:
+		m.statusMsg = ""
+		m.overlayTitle = "Diagnosis"
+		m.overlayContent = msg.content
+		vpH := m.height - 4
+		if vpH < 1 {
+			vpH = 1
+		}
+		m.overlayVP = viewport.New(m.width, vpH)
+		m.overlayVP.SetContent(msg.content)
+		m.overlay = overlayDiagnose
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -439,7 +489,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.tab = TabTaskInstances
 				return m, nil
 			case "r":
-				return m, m.refresh()
+				return m, m.refreshCmd()
 			case "[":
 				if m.logView.TryNumber() > 1 {
 					newTry := m.logView.TryNumber() - 1
@@ -498,11 +548,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.tab {
 			case TabDAGs:
 				if dag, ok := m.dagList.SelectedDAG(); ok {
-					runs := m.ds.ListDAGRuns(dag.ID)
-					m.dagRunList = NewDAGRunListModel(dag.ID, runs)
-					m.dagRunList.SetSize(m.width)
-					m.dagRunList.DetectFalseSuccess(m.ds.ListTaskInstances)
 					m.tab = TabDAGRuns
+					m.dagRunList = NewDAGRunListModel(dag.ID, nil)
+					m.dagRunList.SetSize(m.width)
+					m.loadingRuns = true
+					return m, m.loadDAGRunsCmd(dag.ID)
 				}
 			case TabDAGRuns:
 				if run, ok := m.dagRunList.SelectedRun(); ok {
@@ -590,11 +640,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.tab {
 			case TabDAGs:
 				if dag, ok := m.dagList.SelectedDAG(); ok {
-					runs := m.ds.ListDAGRuns(dag.ID)
-					m.dagRunList = NewDAGRunListModel(dag.ID, runs)
-					m.dagRunList.SetSize(m.width)
-					m.dagRunList.DetectFalseSuccess(m.ds.ListTaskInstances)
 					m.tab = TabDAGRuns
+					m.dagRunList = NewDAGRunListModel(dag.ID, nil)
+					m.dagRunList.SetSize(m.width)
+					m.loadingRuns = true
+					return m, m.loadDAGRunsCmd(dag.ID)
 				}
 			case TabDAGRuns:
 				if run, ok := m.dagRunList.SelectedRun(); ok {
@@ -762,21 +812,12 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "d":
 			if m.tab == TabDAGs {
-				result := RunDiagnosis(m.ds)
-				content := strings.Join(result.Lines, "\n")
-				m.overlayTitle = "Diagnosis"
-				m.overlayContent = content
-				vpH := m.height - 4
-				if vpH < 1 {
-					vpH = 1
-				}
-				m.overlayVP = viewport.New(m.width, vpH)
-				m.overlayVP.SetContent(content)
-				m.overlay = overlayDiagnose
+				m.statusMsg = "Running diagnosis..."
+				return m, m.runDiagnosisCmd()
 			}
 
 		case "r":
-			return m, m.refresh()
+			return m, m.refreshCmd()
 
 		case "esc", "backspace":
 			switch m.tab {
@@ -796,32 +837,101 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *AppModel) refresh() tea.Cmd {
+// refreshCmd fetches fresh data for the current tab in a background command so
+// the UI loop is never blocked on the network. The result is applied by
+// applyRefresh when the refreshedMsg arrives. Tab and IDs are captured now.
+func (m AppModel) refreshCmd() tea.Cmd {
+	ds := m.ds
 	switch m.tab {
 	case TabDAGs:
-		dags, err := m.ds.ListDAGs()
-		if err != nil {
-			m.statusMsg = fmt.Sprintf("Refresh failed: %v", err)
-		} else {
-			m.checkFailureNotifications(dags)
-			m.dagList.UpdateDAGs(dags)
-			m.statusMsg = "DAG list refreshed"
+		return func() tea.Msg {
+			dags, err := ds.ListDAGs()
+			return refreshedMsg{tab: TabDAGs, dags: dags, err: err}
 		}
 	case TabDAGRuns:
 		dagID := m.dagRunList.DagID()
-		runs := m.ds.ListDAGRuns(dagID)
-		m.dagRunList.UpdateRuns(runs)
-		m.statusMsg = fmt.Sprintf("DAG Runs refreshed for %s", dagID)
+		return func() tea.Msg {
+			return refreshedMsg{tab: TabDAGRuns, dagID: dagID, runs: ds.ListDAGRuns(dagID)}
+		}
 	case TabTaskInstances:
 		dagID := m.taskInstanceList.DagID()
 		runID := m.taskInstanceList.RunID()
-		tasks := m.ds.ListTaskInstances(dagID, runID)
-		m.taskInstanceList.UpdateTasks(tasks)
-		m.statusMsg = fmt.Sprintf("Task Instances refreshed for %s/%s", dagID, runID)
+		return func() tea.Msg {
+			return refreshedMsg{tab: TabTaskInstances, dagID: dagID, runID: runID, tasks: ds.ListTaskInstances(dagID, runID)}
+		}
+	default: // TabLogs
+		return func() tea.Msg { return refreshedMsg{tab: TabLogs} }
+	}
+}
+
+// applyRefresh applies a completed background refresh, ignoring stale results
+// if the user has since navigated away from the tab the refresh was for.
+func (m *AppModel) applyRefresh(msg refreshedMsg) tea.Cmd {
+	switch msg.tab {
+	case TabDAGs:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("Refresh failed: %v", msg.err)
+		} else {
+			m.checkFailureNotifications(msg.dags)
+			m.dagList.UpdateDAGs(msg.dags)
+			m.statusMsg = "DAG list refreshed"
+		}
+	case TabDAGRuns:
+		if m.tab == TabDAGRuns && m.dagRunList.DagID() == msg.dagID {
+			m.dagRunList.UpdateRuns(msg.runs)
+			m.statusMsg = fmt.Sprintf("DAG Runs refreshed for %s", msg.dagID)
+		}
+	case TabTaskInstances:
+		if m.tab == TabTaskInstances && m.taskInstanceList.DagID() == msg.dagID && m.taskInstanceList.RunID() == msg.runID {
+			m.taskInstanceList.UpdateTasks(msg.tasks)
+			m.statusMsg = fmt.Sprintf("Task Instances refreshed for %s/%s", msg.dagID, msg.runID)
+		}
 	case TabLogs:
 		m.statusMsg = "Refreshed"
 	}
 	return clearStatusAfter(3 * time.Second)
+}
+
+// loadDAGRunsCmd fetches a DAG's runs and computes false-success detection
+// (an N+1 over task instances) entirely off the UI loop.
+func (m AppModel) loadDAGRunsCmd(dagID string) tea.Cmd {
+	ds := m.ds
+	return func() tea.Msg {
+		runs := ds.ListDAGRuns(dagID)
+		return dagRunsLoadedMsg{
+			dagID:        dagID,
+			runs:         runs,
+			falseSuccess: detectFalseSuccessMap(ds, dagID, runs),
+		}
+	}
+}
+
+// runDiagnosisCmd runs the (heavy, N+1) diagnosis scan off the UI loop.
+func (m AppModel) runDiagnosisCmd() tea.Cmd {
+	ds := m.ds
+	return func() tea.Msg {
+		result := RunDiagnosis(ds)
+		return diagnosisReadyMsg{content: strings.Join(result.Lines, "\n")}
+	}
+}
+
+// detectFalseSuccessMap flags "success" runs that actually contain
+// upstream_failed/skipped tasks. It is a plain function (not a model method) so
+// it can run inside a background command, off the UI loop.
+func detectFalseSuccessMap(ds api.DataSource, dagID string, runs []model.DAGRun) map[string]bool {
+	fs := map[string]bool{}
+	for _, run := range runs {
+		if run.State != "success" {
+			continue
+		}
+		for _, t := range ds.ListTaskInstances(dagID, run.RunID) {
+			if t.State == "upstream_failed" || t.State == "skipped" {
+				fs[run.RunID] = true
+				break
+			}
+		}
+	}
+	return fs
 }
 
 func (m *AppModel) checkFailureNotifications(dags []model.DAG) {
@@ -917,7 +1027,11 @@ func (m AppModel) View() string {
 		content = m.dagList.View()
 	case TabDAGRuns:
 		subtitle = HelpStyle.PaddingLeft(1).Render(fmt.Sprintf("DAG: %s", m.dagRunList.DagID()))
-		content = m.dagRunList.View()
+		if m.loadingRuns {
+			content = statusStyle.Render("Loading DAG Runs...")
+		} else {
+			content = m.dagRunList.View()
+		}
 	case TabTaskInstances:
 		subtitle = HelpStyle.PaddingLeft(1).Render(
 			fmt.Sprintf("DAG: %s  ›  Run: %s", m.taskInstanceList.DagID(), m.taskInstanceList.RunID()))

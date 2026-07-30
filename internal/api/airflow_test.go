@@ -194,6 +194,52 @@ func TestAirflowClient_ListDAGRuns_WithServer(t *testing.T) {
 	}
 }
 
+func TestAirflowClient_ListDAGs_EnrichesLastRun(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/dags":
+			fmt.Fprint(w, `{"dags": [
+				{"dag_id": "dag_ok", "is_paused": false},
+				{"dag_id": "dag_bad", "is_paused": false}
+			]}`)
+		case "/api/v1/dags/dag_ok/dagRuns":
+			// order_by=-start_date&limit=1 → latest run first
+			fmt.Fprint(w, `{"dag_runs": [
+				{"dag_id": "dag_ok", "dag_run_id": "r1", "state": "success", "start_date": "2024-01-02T10:00:00+00:00"}
+			]}`)
+		case "/api/v1/dags/dag_bad/dagRuns":
+			fmt.Fprint(w, `{"dag_runs": [
+				{"dag_id": "dag_bad", "dag_run_id": "r2", "state": "failed", "start_date": "2024-01-03T10:00:00+00:00"}
+			]}`)
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := NewAirflowClient(server.URL)
+	client.getToken = func() (string, error) { return "test-token", nil }
+
+	dags, err := client.ListDAGs()
+	if err != nil {
+		t.Fatalf("ListDAGs failed: %v", err)
+	}
+	if len(dags) != 2 {
+		t.Fatalf("expected 2 DAGs, got %d", len(dags))
+	}
+	byID := map[string]string{}
+	for _, d := range dags {
+		byID[d.ID] = d.LastRunState
+	}
+	if byID["dag_ok"] != "success" {
+		t.Errorf("dag_ok LastRunState: expected success, got %q", byID["dag_ok"])
+	}
+	if byID["dag_bad"] != "failed" {
+		t.Errorf("dag_bad LastRunState: expected failed, got %q", byID["dag_bad"])
+	}
+}
+
 func TestAirflowClient_TriggerDAG_WithServer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
