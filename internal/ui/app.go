@@ -792,8 +792,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if i > 0 {
 							sb.WriteString("\n" + strings.Repeat("─", 60) + "\n\n")
 						}
-						sb.WriteString(fmt.Sprintf("File: %s\n", e.Filename))
-						sb.WriteString(fmt.Sprintf("Time: %s\n\n", e.Timestamp.Format("2006-01-02 15:04:05")))
+						fmt.Fprintf(&sb, "File: %s\n", e.Filename)
+						fmt.Fprintf(&sb, "Time: %s\n\n", e.Timestamp.Format("2006-01-02 15:04:05"))
 						sb.WriteString(e.StackTrace)
 						sb.WriteString("\n")
 					}

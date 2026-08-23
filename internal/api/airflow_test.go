@@ -165,7 +165,7 @@ func TestAirflowClient_ListDAGRuns_WithServer(t *testing.T) {
 			t.Errorf("expected Bearer test-token, got %q", r.Header.Get("Authorization"))
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{
+		_, _ = fmt.Fprint(w, `{
 			"dag_runs": [
 				{
 					"dag_id": "test_dag",
@@ -199,17 +199,17 @@ func TestAirflowClient_ListDAGs_EnrichesLastRun(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/api/v1/dags":
-			fmt.Fprint(w, `{"dags": [
+			_, _ = fmt.Fprint(w, `{"dags": [
 				{"dag_id": "dag_ok", "is_paused": false},
 				{"dag_id": "dag_bad", "is_paused": false}
 			]}`)
 		case "/api/v1/dags/dag_ok/dagRuns":
 			// order_by=-start_date&limit=1 → latest run first
-			fmt.Fprint(w, `{"dag_runs": [
+			_, _ = fmt.Fprint(w, `{"dag_runs": [
 				{"dag_id": "dag_ok", "dag_run_id": "r1", "state": "success", "start_date": "2024-01-02T10:00:00+00:00"}
 			]}`)
 		case "/api/v1/dags/dag_bad/dagRuns":
-			fmt.Fprint(w, `{"dag_runs": [
+			_, _ = fmt.Fprint(w, `{"dag_runs": [
 				{"dag_id": "dag_bad", "dag_run_id": "r2", "state": "failed", "start_date": "2024-01-03T10:00:00+00:00"}
 			]}`)
 		default:
@@ -246,7 +246,7 @@ func TestAirflowClient_TriggerDAG_WithServer(t *testing.T) {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{
+		_, _ = fmt.Fprint(w, `{
 			"dag_id": "test_dag",
 			"dag_run_id": "manual__2024-01-01T12:00:00",
 			"state": "queued",
@@ -271,7 +271,7 @@ func TestAirflowClient_TriggerDAG_WithServer(t *testing.T) {
 func TestAirflowClient_APIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		fmt.Fprint(w, `{"detail":"Not authorized"}`)
+		_, _ = fmt.Fprint(w, `{"detail":"Not authorized"}`)
 	}))
 	defer server.Close()
 
