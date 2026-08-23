@@ -246,7 +246,7 @@ func (m *MockDataSource) GetDAGDetail(dagID string) (model.DAGDetail, error) {
 }
 
 func (m *MockDataSource) GetDAGSource(fileToken string) (string, error) {
-	return fmt.Sprintf(`from airflow import DAG
+	return `from airflow import DAG
 from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
 
@@ -288,7 +288,7 @@ with DAG(
     t3 = PythonOperator(task_id='load', python_callable=load)
 
     t1 >> t2 >> t3
-`), nil
+`, nil
 }
 
 func (m *MockDataSource) ListImportErrors() []model.ImportError {

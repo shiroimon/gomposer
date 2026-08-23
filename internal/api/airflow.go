@@ -387,7 +387,8 @@ func parseScheduleInterval(raw json.RawMessage) string {
 
 func jsonInt(raw json.RawMessage) int {
 	var v int
-	json.Unmarshal(raw, &v)
+	// Missing or non-numeric fields fall back to zero.
+	_ = json.Unmarshal(raw, &v)
 	return v
 }
 
