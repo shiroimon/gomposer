@@ -1,0 +1,20 @@
+# Gomposer configuration file
+
+[environments.qa]
+name = "qa"
+webserver_url = "https://yyyyyyyy-dot-us-central1.composer.googleusercontent.com"
+color_theme = "blue"
+gcp_project = "your-qa-project"
+
+[environments.prod]
+name = "prod"
+webserver_url = "https://yyyyyyyy-dot-us-central1.composer.googleusercontent.com"
+color_theme = "red"
+gcp_project = "your-prod-project"
+
+[default]
+environment = "qa"
+
+[ui]
+# Auto-refresh interval in seconds (0 = disabled)
+refresh_interval_sec = 30
